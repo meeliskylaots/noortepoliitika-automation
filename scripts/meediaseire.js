@@ -1,6 +1,11 @@
-// Meediaseire ja analüüsi skript
 function seiraUudiseid() {
-  const apiKey = "SISESTA_SIA_GEMINI_API_VOTI"; 
+  // Loeme võtme turvalisest Script Properties alast
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  
+  if (!apiKey) {
+    throw new Error("API võti puudub! Palun sisesta see Script Properties alla.");
+  }
+
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const rssUrl = "https://www.err.ee/rss"; 
 
@@ -12,8 +17,35 @@ function seiraUudiseid() {
     let title = entries[i].getChildText('title');
     let link = entries[i].getChildText('link');
     
-    // Siia saab lisada kontrolli, kas link on juba tabelis
-    let aiVastus = kusiGemini(title, apiKey);
-    sheet.appendRow([new Date(), title, link, aiVastus]);
+    // Kontrollime, et topelt ei lisaks (eeldab, et link on C-veerus)
+    let data = sheet.getDataRange().getValues();
+    let olemas = data.some(row => row[2] === link);
+
+    if (!olemas) {
+      let aiVastus = kusiGemini(title, apiKey);
+      sheet.appendRow([new Date(), title, link, aiVastus]);
+    }
   }
+}
+
+function kusiGemini(tekst, apiKey) {
+  const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+  
+  const prompt = "Oled ekspert. Analüüsi uudist: '" + tekst + "'. 1) Mõju noortele (1 lause). 2) Tonaalsus. Vasta: Mõju | Tonaalsus";
+
+  const payload = {
+    "contents": [{ "parts": [{ "text": prompt }] }]
+  };
+
+  const options = {
+    "method": "post",
+    "contentType": "application/json",
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+
+  const res = UrlFetchApp.fetch(apiUrl, options);
+  const json = JSON.parse(res.getContentText());
+  
+  return json.candidates[0].content.parts[0].text;
 }
